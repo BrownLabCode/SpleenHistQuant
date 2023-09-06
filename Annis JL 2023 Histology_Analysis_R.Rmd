@@ -1,0 +1,82 @@
+# HE_Results Analysis of JLA IJ Macro Batch Analysis
+
+```{r}
+## Load your libraries and set the working directory
+library(tidyverse)
+
+wd <- dirname(rstudioapi::getActiveDocumentContext()$path)
+setwd(wd)
+
+## Read in your HE_analysis output files
+H <- read_csv("HE_Results_RAW.csv")
+
+# Add the Image Column Groupings
+Image <- rep(1:(nrow(H)/6),each=6)
+Image_Column <- data.frame(Image)
+Image_Column <- Image_Column %>% 
+  mutate(RowNum = 1:nrow(Image_Column))
+H <- rename(H, RowNum = ...1)
+H <- merge(H, Image_Column, by = "RowNum")
+
+# Add the Analysis Grouping
+Analysis <- rep(c(1:6), times=(nrow(H)/6))
+Analysis_Column <- data.frame(Analysis)
+Analysis_Column <- Analysis_Column %>% 
+  mutate(RowNum = 1:nrow(Analysis_Column))
+H <- merge(H, Analysis_Column, by = "RowNum")
+
+# Separate out the different analyses
+ID <- H %>% filter(Analysis == 1) %>% separate(col = Label, into = c("Sample", NA), sep = "[_]", extra = "merge") %>% 
+  separate(col = Sample, into = c(NA, "Sample", NA, "Rep", NA), sep = " ", extra = "merge") %>% 
+  select(c("Sample", "Rep", "Image"))
+
+TA <- H %>% filter(Analysis == 2) %>% select(c("Area", "Image"))
+colnames(TA) <- c("Tot_Area", "Image")
+
+WP <- H %>% filter(Analysis == 4) %>% select(c("Area", "Image"))
+colnames(WP) <- c("WP_Area", "Image")
+
+FE <- H %>% filter(Analysis == 5) %>% select(c("Area", "Image"))
+colnames(FE) <- c("FE_Area", "Image")
+
+AN <- H %>% filter(Analysis == 6) %>% select(c("Area", "Image"))
+colnames(AN) <- c("AN_Area", "Image")
+
+## Join the Datasets
+Data <- full_join(ID, TA, by = "Image")
+Data <- full_join(Data, WP, by = "Image")
+Data <- full_join(Data, FE, by = "Image")
+Data <- full_join(Data, AN, by = "Image")
+Data <- select(Data, -c("Image"))
+
+Data$Sample <- as.numeric(Data$Sample)
+Data <- Data %>% arrange(Sample)
+
+# Correct ImageJ issue where trying to select a value of 0 selects everything
+for(i in 1:nrow(Data)){
+  if(Data$AN_Area[i] >= Data$Tot_Area[i]){
+    Data$AN_Area[i] = 0
+  }
+}
+
+for(i in 1:nrow(Data)){
+  if(Data$FE_Area[i] >= Data$Tot_Area[i]){
+    Data$FE_Area[i] = 0
+  }
+}
+
+## Compute the Calculated Columns
+Raw_Data <- Data %>% 
+  mutate(RP_Area = Tot_Area - WP_Area) %>% 
+  mutate(pt_WP = (WP_Area/Tot_Area)*100) %>% 
+  mutate(pr_FE = (FE_Area/RP_Area)*100) %>% 
+  mutate(pr_AN = (AN_Area/RP_Area)*100)
+
+## Make the Happy Dataset
+Happy_Data <- Raw_Data %>% select(c("Sample", "pt_WP", "pr_FE", "pr_AN")) %>% 
+  group_by(Sample) %>% summarise(across(everything(), ~mean(.x)))
+
+## Save the Results
+write.csv(Happy_Data, "Happy_Data.csv", row.names = FALSE)
+
+```
